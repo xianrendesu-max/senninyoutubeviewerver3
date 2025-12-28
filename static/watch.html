@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>仙人YouTubeビュアー</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{margin:0;font-family:system-ui;background:#f3f4f6}
+.header{background:#fff;padding:10px;display:flex;gap:8px}
+.header button{flex:1;padding:10px}
+.video-wrap{aspect-ratio:16/9;background:#000}
+iframe{width:100%;height:100%;border:none}
+.section{background:#fff;margin:12px;padding:12px;border-radius:8px}
+.comment{border-top:1px solid #eee;padding:6px 0}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <button onclick="setPlayer('nocookie')">nocookie</button>
+  <button onclick="setPlayer('edu')">EDU</button>
+</div>
+
+<div class="video-wrap">
+  <iframe id="player" allowfullscreen></iframe>
+</div>
+
+<div class="section">
+  <h3 id="title">読み込み中...</h3>
+  <div id="author"></div>
+</div>
+
+<div class="section">
+  <button onclick="open360p()">▶ 360pストリーム</button>
+</div>
+
+<div class="section">
+  <h3>コメント</h3>
+  <div id="comments">読み込み中...</div>
+</div>
+
+<script>
+const videoId = new URLSearchParams(location.search).get("v");
+const player = document.getElementById("player");
+
+function setPlayer(type){
+  if(type==="nocookie"){
+    player.src = `https://www.youtube-nocookie.com/embed/${videoId}`;
+  }
+  if(type==="edu"){
+    player.src = `/api/edu/${videoId}`;
+  }
+}
+setPlayer("nocookie");
+
+// ===== 動画情報（Invidious直） =====
+fetch(`https://invidious.lunivers.trade/api/v1/videos/${videoId}?hl=jp`)
+.then(r=>r.json())
+.then(v=>{
+  document.getElementById("title").textContent = v.title;
+  document.getElementById("author").textContent = v.author;
+});
+
+// ===== コメント =====
+fetch(`https://invidious.lunivers.trade/api/v1/comments/${videoId}`)
+.then(r=>r.json())
+.then(d=>{
+  const c = document.getElementById("comments");
+  c.innerHTML="";
+  d.comments.forEach(cm=>{
+    const div=document.createElement("div");
+    div.className="comment";
+    div.innerHTML=`<b>${cm.author}</b><br>${cm.contentHtml}`;
+    c.appendChild(div);
+  });
+});
+
+// ===== 360p =====
+function open360p(){
+  location.href = `/api/stream_360p_url/${videoId}`;
+}
+</script>
+
+</body>
+</html>
