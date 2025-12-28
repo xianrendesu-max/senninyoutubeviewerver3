@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>仙人YouTubeビュアー 検索</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{margin:0;font-family:system-ui;background:#f5f6f8}
+header{background:#fff;padding:12px;display:flex;gap:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+header input{flex:1;padding:10px;font-size:16px}
+header button{padding:10px 16px;background:#2563eb;color:#fff;border:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;padding:16px}
+.card{background:#fff;border-radius:8px;padding:10px;cursor:pointer}
+.thumb{width:100%;border-radius:6px}
+.title{font-size:14px;font-weight:bold;margin-top:6px}
+.author{font-size:12px;color:#666}
+</style>
+</head>
+
+<body>
+
+<header>
+  <input id="q" placeholder="動画を検索" onkeydown="if(event.key==='Enter')search()">
+  <button onclick="search()">検索</button>
+</header>
+
+<div id="results" class="grid"></div>
+
+<script>
+const INVIDIOUS_SEARCH = "https://api-five-zeta-55.vercel.app/api/v1/search";
+
+async function search(){
+  const q = document.getElementById("q").value.trim();
+  if(!q) return;
+
+  const res = await fetch(`${INVIDIOUS_SEARCH}?q=${encodeURIComponent(q)}&hl=jp`);
+  const data = await res.json();
+
+  const grid = document.getElementById("results");
+  grid.innerHTML = "";
+
+  data.filter(v=>v.type==="video").forEach(v=>{
+    const card = document.createElement("div");
+    card.className="card";
+    card.onclick=()=>location.href=`/static/watch.html?v=${v.videoId}`;
+
+    card.innerHTML=`
+      <img class="thumb" src="https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg">
+      <div class="title">${v.title}</div>
+      <div class="author">${v.author}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+</script>
+
+</body>
+</html>
