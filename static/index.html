@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>仙人YouTubeビュアー</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui;
+  background:#0f0f0f;
+  color:#fff;
+}
+header{
+  padding:10px;
+  background:#181818;
+  display:flex;
+  gap:10px;
+}
+input{
+  flex:1;
+  padding:8px;
+  font-size:16px;
+  background:#000;
+  color:#fff;
+  border:1px solid #333;
+}
+button{
+  padding:8px 14px;
+  background:#222;
+  color:#fff;
+  border:1px solid #444;
+  cursor:pointer;
+}
+#results{
+  padding:10px;
+}
+.item{
+  display:flex;
+  gap:10px;
+  padding:8px;
+  border-bottom:1px solid #222;
+  cursor:pointer;
+}
+.item:hover{
+  background:#1a1a1a;
+}
+.thumb{
+  width:160px;
+}
+.thumb img{
+  width:100%;
+}
+.title{
+  font-size:16px;
+  font-weight:bold;
+}
+.author{
+  font-size:13px;
+  opacity:.7;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <input id="q" placeholder="検索ワード">
+  <button onclick="search()">検索</button>
+</header>
+
+<div id="results"></div>
+
+<script>
+async function search(){
+  const q = document.getElementById("q").value.trim();
+  if(!q) return;
+
+  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+  const data = await res.json();
+
+  const box = document.getElementById("results");
+  box.innerHTML = "";
+
+  data.results.forEach(v=>{
+    const div = document.createElement("div");
+    div.className = "item";
+    div.onclick = ()=>{
+      location.href = `/static/watch.html?v=${v.videoId}`;
+    };
+
+    div.innerHTML = `
+      <div class="thumb">
+        <img src="https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg">
+      </div>
+      <div>
+        <div class="title">${v.title}</div>
+        <div class="author">${v.author}</div>
+      </div>
+    `;
+    box.appendChild(div);
+  });
+}
+
+document.getElementById("q").addEventListener("keydown",e=>{
+  if(e.key==="Enter") search();
+});
+</script>
+
+</body>
+</html>
