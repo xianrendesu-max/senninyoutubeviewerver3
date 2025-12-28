@@ -1,72 +1,24 @@
-import json
-import datetime
-import urllib.parse
-import requests
-import concurrent.futures
-from pathlib import Path
-from typing import List, Dict
-
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.concurrency import run_in_threadpool
-
-# =========================
-# 基本設定
-# =========================
-
-BASE_DIR = Path(__file__).resolve().parent
+from pathlib import Path
+import requests
+import random
 
 app = FastAPI()
 
-app.mount(
-    "/static",
-    StaticFiles(directory=str(BASE_DIR / "static")),
-    name="static",
-)
+# ===============================
+# パス設定
+# ===============================
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-# =========================
-# 共通
-# =========================
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-class APITimeoutError(Exception):
-    pass
-
-
-def getRandomUserAgent():
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0 Safari/537.36"
-        )
-    }
-
-
-def isJSON(text: str) -> bool:
-    try:
-        json.loads(text)
-        return True
-    except Exception:
-        return False
-
-
-max_time = 10.0
-max_api_wait_time = (3.0, 8.0)
-
-# =========================
-# 外部 API（指定どおり全部）
-# =========================
-
-EDU_STREAM_API_BASE_URL = "https://siawaseok.duckdns.org/api/stream/"
-EDU_VIDEO_API_BASE_URL = "https://siawaseok.duckdns.org/api/video2/"
-STREAM_YTDL_API_BASE_URL = "https://yudlp.vercel.app/stream/"
-SHORT_STREAM_API_BASE_URL = "https://yt-dl-kappa.vercel.app/short/"
-
-# =========================
-# Invidious API（完全版）
-# =========================
-
-invidious_api_data = {
+# ===============================
+# API プール
+# ===============================
+API_POOLS = {
     "video": [],
     "playlist": [
         "https://invidious.lunivers.trade/",
@@ -101,193 +53,132 @@ invidious_api_data = {
     ],
 }
 
+# ===============================
+# EDU / STREAM API
+# ===============================
+EDU_STREAM_API_BASE_URL = "https://siawaseok.duckdns.org/api/stream/"
+EDU_VIDEO_API_BASE_URL = "https://siawaseok.duckdns.org/api/video2/"
+STREAM_YTDL_API_BASE_URL = "https://yudlp.vercel.app/stream/"
+SHORT_STREAM_API_BASE_URL = "https://yt-dl-kappa.vercel.app/short/"
 
-class InvidiousAPI:
-    def __init__(self):
-        self.video = list(invidious_api_data["video"])
-        self.playlist = list(invidious_api_data["playlist"])
-        self.search = list(invidious_api_data["search"])
-        self.channel = list(invidious_api_data["channel"])
-        self.comments = list(invidious_api_data["comments"])
+# ===============================
+# 共通関数
+# ===============================
+def pick(pool):
+    return random.choice(pool)
 
+# ===============================
+# HTML ルーティング
+# ===============================
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-invidious_api = InvidiousAPI()
+@app.get("/watch", response_class=HTMLResponse)
+def watch():
+    return (STATIC_DIR / "watch.html").read_text(encoding="utf-8")
 
+@app.get("/channel", response_class=HTMLResponse)
+def channel_page():
+    return (STATIC_DIR / "channel.html").read_text(encoding="utf-8")
 
-def requestAPI(path: str, api_urls: List[str]) -> str:
-    if not api_urls:
-        raise APITimeoutError("No API instances")
+# ===============================
+# SEARCH
+# ===============================
+@app.get("/api/search")
+def api_search(q: str = Query(...)):
+    base = pick(API_POOLS["search"])
+    try:
+        r = requests.get(
+            f"{base}api/search",
+            params={"q": q, "type": "video"},
+            timeout=10,
+        )
+        return r.json()
+    except:
+        return {"items": []}
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=len(api_urls)
-    ) as executor:
-        futures = {
-            executor.submit(
-                requests.get,
-                api + "api/v1" + path,
-                headers=getRandomUserAgent(),
-                timeout=max_api_wait_time,
-            ): api
-            for api in api_urls
+# ===============================
+# VIDEO INFO
+# ===============================
+@app.get("/api/video")
+def api_video(video_id: str):
+    try:
+        r = requests.get(
+            f"{EDU_VIDEO_API_BASE_URL}{video_id}",
+            timeout=10,
+        )
+        return r.json()
+    except:
+        return {
+            "title": "取得失敗",
+            "author": "",
+            "description": "",
         }
 
-        for future in concurrent.futures.as_completed(futures, timeout=max_time):
-            try:
-                res = future.result()
-                if res.status_code == 200 and isJSON(res.text):
-                    return res.text
-            except Exception:
-                pass
+# ===============================
+# COMMENTS
+# ===============================
+@app.get("/api/comments")
+def api_comments(video_id: str):
+    base = pick(API_POOLS["comments"])
+    try:
+        r = requests.get(
+            f"{base}api/v1/comments/{video_id}",
+            timeout=10,
+        )
+        data = r.json()
+        out = []
+        for c in data.get("comments", []):
+            out.append(
+                {
+                    "author": c.get("author", ""),
+                    "content": c.get("content", ""),
+                }
+            )
+        return {"comments": out}
+    except:
+        return {"comments": []}
 
-    raise APITimeoutError("All Invidious APIs failed")
+# ===============================
+# CHANNEL INFO
+# ===============================
+@app.get("/api/channel")
+def api_channel(channel_id: str):
+    base = pick(API_POOLS["channel"])
+    try:
+        r = requests.get(
+            f"{base}api/v1/channels/{channel_id}",
+            timeout=10,
+        )
+        return r.json()
+    except:
+        return {}
 
-# =========================
-# EDU 動画情報
-# =========================
-
-def fetch_video_data_from_edu_api(videoid: str) -> dict:
-    res = requests.get(
-        f"{EDU_VIDEO_API_BASE_URL}{urllib.parse.quote(videoid)}",
-        headers=getRandomUserAgent(),
-        timeout=max_api_wait_time,
-    )
-    res.raise_for_status()
-    return res.json()
-
-
-async def getVideoData(videoid: str):
-    data = await run_in_threadpool(fetch_video_data_from_edu_api, videoid)
-
-    return {
-        "title": data.get("title"),
-        "author": data.get("author", {}).get("name"),
-        "description": data.get("description", {}).get("formatted", ""),
-    }
-
-# =========================
-# 検索
-# =========================
-
-def formatSearchData(d: dict) -> dict:
-    return {
-        "videoId": d.get("videoId"),
-        "title": d.get("title"),
-        "author": d.get("author"),
-    }
-
-
-async def getSearchData(q: str):
-    text = await run_in_threadpool(
-        requestAPI,
-        f"/search?q={urllib.parse.quote(q)}&hl=jp",
-        invidious_api.search,
-    )
-    data = json.loads(text)
-    return [formatSearchData(i) for i in data if i.get("type") == "video"]
-
-# =========================
-# チャンネル
-# =========================
-
-async def getChannelVideos(channel_id: str):
-    text = await run_in_threadpool(
-        requestAPI,
-        f"/channel/{urllib.parse.quote(channel_id)}",
-        invidious_api.channel,
-    )
-    data = json.loads(text)
-    return data.get("latestVideos", [])
-
-# =========================
-# コメント
-# =========================
-
-async def getCommentsData(videoid: str):
-    text = await run_in_threadpool(
-        requestAPI,
-        f"/comments/{urllib.parse.quote(videoid)}",
-        invidious_api.comments,
-    )
-    data = json.loads(text).get("comments", [])
-    return [
-        {
-            "author": i.get("author"),
-            "content": i.get("content"),
-        }
-        for i in data
+# ===============================
+# STREAM URL
+# ===============================
+@app.get("/api/streamurl")
+def api_streamurl(video_id: str, quality: str = "best"):
+    candidates = [
+        f"{EDU_STREAM_API_BASE_URL}{video_id}",
+        f"{STREAM_YTDL_API_BASE_URL}{video_id}",
+        f"{SHORT_STREAM_API_BASE_URL}{video_id}",
     ]
 
-# =========================
-# ストリーム
-# =========================
+    for url in candidates:
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                return RedirectResponse(r.url)
+        except:
+            pass
 
-def get_360p_single_url(videoid: str) -> str:
-    res = requests.get(
-        f"{STREAM_YTDL_API_BASE_URL}{videoid}",
-        headers=getRandomUserAgent(),
-        timeout=max_api_wait_time,
-    )
-    res.raise_for_status()
+    return JSONResponse({"error": "stream unavailable"})
 
-    for f in res.json().get("formats", []):
-        if f.get("itag") == "18" and f.get("url"):
-            return f["url"]
-
-    raise APITimeoutError("360p not found")
-
-
-def get_short_stream(videoid: str) -> str:
-    res = requests.get(
-        f"{SHORT_STREAM_API_BASE_URL}{videoid}",
-        headers=getRandomUserAgent(),
-        timeout=max_api_wait_time,
-    )
-    res.raise_for_status()
-    return res.json().get("url")
-
-# =========================
-# API ROUTES
-# =========================
-
-@app.get("/api/search")
-async def api_search(q: str):
-    return {
-        "results": await getSearchData(q),
-        "source": "invidious",
-    }
-
-
-@app.get("/api/video")
-async def api_video(video_id: str):
-    return await getVideoData(video_id)
-
-
-@app.get("/api/comments")
-async def api_comments(video_id: str):
-    return {"comments": await getCommentsData(video_id)}
-
-
-@app.get("/api/channel")
-async def api_channel(channel_id: str):
-    return {"videos": await getChannelVideos(channel_id)}
-
-
-@app.get("/api/streamurl")
-async def api_streamurl(video_id: str, quality: str = "360p"):
-    if quality == "360p":
-        url = await run_in_threadpool(get_360p_single_url, video_id)
-        return Response(status_code=307, headers={"Location": url})
-
-    if quality == "short":
-        url = await run_in_threadpool(get_short_stream, video_id)
-        return Response(status_code=307, headers={"Location": url})
-
-    return Response("unsupported quality", status_code=400)
-
-# =========================
-# 起動確認
-# =========================
-
-@app.get("/")
-def root():
+# ===============================
+# STATUS
+# ===============================
+@app.get("/status")
+def status():
     return {"status": "ok"}
